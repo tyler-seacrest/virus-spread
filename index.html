@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0"> 
+    <title>Seating Arrangement to minimize risk</title>
+    <style>
+    	* { padding: 10; margin: 10; }
+    	canvas { background: #eee; display: block; margin: 0 auto; }
+
+		
+    </style>
+</head>
+<body>
+
+
+<h1>Classroom disease spread optimization</h1>
+
+
+<br><br>
+
+
+
+Number of Chairs:  <span id="chair_num">0</span> &nbsp; &nbsp; <button onclick="addChair()">Add a chair</button>  &nbsp; &nbsp; <button onclick="removeChair()">Remove a chair</button> 
+<br><br>
+
+Number of students:  <input type="text" value="5" id="student_num" maxlength="2" size="1" onchange="changeNumOfStudents()"> &nbsp; &nbsp; &nbsp; &nbsp; Length of class: <input type="text" value="3" id="time_input" maxlength="4" size="1" onchange="changeTime()"> hours
+
+
+<br><br>
+
+
+
+<svg xmlns="https://www.w3.org/2000/svg" viewbox="0 0 400 200" id="theSVG" onmousemove="mouseMove(evt)">
+  <rect x="0" y="0" width="400" height="200" fill="#CCF" id="background" />  
+  <text x="200" y="12" fill="red" id="risk_text">Risk of spread:</text>
+<script>
+
+
+// code from http://www.codedread.com/blog/archives/2005/12/21/how-to-enable-dragging-in-svg/
+
+var bMouseDragging = false;
+var nMouseOffsetX = 0;
+var nMouseOffsetY = 0;
+var theSVG = document.getElementById("theSVG");
+var ball = null;
+
+function mouseDown(evt) { 
+	bMouseDragging = true;
+
+	ball = evt.currentTarget;
+	if(ball) {
+		var p = theSVG.createSVGPoint();
+		p.x = evt.clientX;
+		p.y = evt.clientY;
+	
+		var m = ball.getScreenCTM();
+		p = p.matrixTransform(m.inverse());
+		nMouseOffsetX = p.x - parseInt(ball.getAttribute("cx"));
+		nMouseOffsetY = p.y - parseInt(ball.getAttribute("cy"));
+	}
+}
+function mouseUp(evt) { 
+	bMouseDragging = false;
+}
+function mouseMove(evt) { 
+
+	var p = theSVG.createSVGPoint();
+	p.x = evt.clientX;
+	p.y = evt.clientY;
+	var bClient = true;
+	
+	if(bMouseDragging) {
+		if(ball) {
+	
+			var m = ball.getScreenCTM();
+			p = p.matrixTransform(m.inverse());
+
+			ball.setAttribute("cx", p.x - nMouseOffsetX);
+			ball.setAttribute("cy", p.y - nMouseOffsetY);
+			bClient = false;
+		}
+	}
+	
+
+}
+function init(theID) {
+	var theItem = document.getElementById(theID);
+	if(theItem) {
+		theItem.addEventListener("mousedown", mouseDown, false);
+		theItem.addEventListener("mouseup", mouseUp, false);
+		theItem.addEventListener("mousemove", mouseMove, false);
+	}
+}
+
+
+</script>
+</svg>
+
+
+<button onclick="calculateSeatsApproximate()"> Find seats to minimize risk (approximate solution) </button> <br>
+<button onclick="calculateSeats()"> Find seats to minimize risk (optimal solution) </button> (warning:  this could take a long time) <br>
+<button onclick="resetColors()"> Reset colors </button> <br>
+
+Click "Add a chair" for each chair in your classroom, and then move around the blue dots (chairs) until they match your desired seating arrangment.  
+Typein the number of students (should be less than the number of chairs).  
+Then click "Find seats to minimize risk (approximate solution)", and the green dots are where the students should sit.  Based off a very simple 
+disease spread model, results may not be accurate.
+
+
+
+
+<script src="solver.js"></script>
+
+
+
+
+<script>
+
+
+
+
+var theSVG = document.getElementById("theSVG");
+var background = document.getElementById("background");
+const W = background.getAttribute("width");
+const H = background.getAttribute("height");
+var count = 0;
+var numOfStudents = 5;
+var time = 3;
+var theChairs = [];
+
+const locate = "" + window.location;
+const afterQ = locate.substring(locate.indexOf('?')+1, locate.length);
+const theVars = afterQ.split("?");
+
+const theBoard = splitAndParseFloat(theVars[0], "_");
+
+
+
+
+
+function splitAndParseFloat(str, chr)  {
+	var Arr = str.split(chr);
+	for (i = 0; i<Arr.length; i++)	{
+		Arr[i] = parseFloat(Arr[i]);
+		}
+	return Arr;
+	}
+
+
+
+
+
+
+
+
+
+function hide(id) {
+    document.getElementById(id).style.visibility = "hidden";
+    }
+
+function unhide(id) {
+    document.getElementById(id).style.visibility = "visible";
+    }
+	
+
+
+
+
+
+
+function addChair()  {
+	count+=1;
+	var newCircle = document.createElementNS("http://www.w3.org/2000/svg", 'circle');
+	newCircle.setAttribute("cx", Math.random()*W);
+	newCircle.setAttribute("cy", Math.random()*H);
+	newCircle.setAttribute("r", 5);
+	newCircle.setAttribute("fill", "blue");
+	newCircle.setAttribute("id", "circle"+(count-1));
+	theSVG.appendChild(newCircle);
+	init("circle"+(count-1));
+	theChairs[(count-1)] = newCircle;
+	updateChairCounter();
+}
+
+
+function removeChair() {
+	if(count==0)
+		return;
+		
+		
+	count -= 1;
+	oldCircle = document.getElementById("circle" + count);
+	theSVG.removeChild(oldCircle);
+	theChairs.splice(count, 1);
+	updateChairCounter();
+	}
+
+function updateChairCounter() {
+document.getElementById("chair_num").innerHTML = count;
+}
+
+
+
+function changeNumOfStudents()  {
+numOfStudents = parseInt(document.getElementById("student_num").value);
+}
+
+function changeTime()  {
+time = parseFloat(document.getElementById("time_input").value);
+}
+
+function distanceToProbability(d, time)
+{
+return 1-Math.exp(-time/d);
+}
+
+
+
+function distanceBetweenCircles(i, j)
+{
+var firstCircle = theChairs[i];
+var secondCircle = theChairs[j];
+var x1 = firstCircle.getAttribute("cx");
+var y1 = firstCircle.getAttribute("cy");
+var x2 = secondCircle.getAttribute("cx");
+var y2 = secondCircle.getAttribute("cy");
+return Math.sqrt(Math.pow(x1-x2, 2) + Math.pow(y1-y2, 2));
+}
+
+// This function uses Integer Programs (IPs) to figure out a seating arrangement that minimizes risk
+
+
+
+function calculateSeats()  {
+
+if(count==0)
+	return;
+
+const numOfChairs = count;
+
+
+
+edgeWeights = [];
+
+// Setup the edge weights based on where the circles are.
+for (i = 1; i < numOfChairs; i++) {
+	for(j = 0; j < i; j++){
+		edgeWeights[i*(i-1)/2+j] = distanceToProbability(distanceBetweenCircles(i, j), time);
+		}
+	}
+
+
+// Setup the variables that hold the whole LP
+var results;
+var model = [];
+
+// Sets up the minimization function, which is the sum of the nonzero edge weights.  Note that we apparently don't need +?
+model[0] = "min:";
+for (i = 0; i < numOfChairs*(numOfChairs-1)/2; i++) {
+		model[0] += " " + edgeWeights[i] + " z" + i;
+	}
+
+
+
+// Sets up the constraint that z is one if the corresponding xs are both one
+
+
+for (i = 1; i < numOfChairs; i++) {
+	for(j = 0; j < i; j++){
+		model[i*(i-1)/2+j+1] = " -1 z" + (i*(i-1)/2+j) + " 1 x" + i + " 1 x" + j + " <= " + "1" ;
+		}
+	}
+
+
+// Just want the variables to be greater than 0
+for (i = 0; i < numOfChairs*(numOfChairs-1)/2; i++) {
+	model[numOfChairs*(numOfChairs-1)/2+1+i] = "z" + i + " >= 0";
+	}
+
+for (i = 0; i < numOfChairs; i++) {
+	model[numOfChairs*(numOfChairs-1)+1+i] = "x" + i + " >= 0";
+	}
+
+for (i = 0; i < numOfChairs; i++) {
+	model[numOfChairs*(numOfChairs)+1+i] = "x" + i + " <= 1";
+	}
+
+
+// Finally, want to make sure we have at least a certain number of students.
+
+model[numOfChairs*(numOfChairs+1)+1] = "";
+
+for (i = 0; i < numOfChairs; i++) {
+	model[numOfChairs*(numOfChairs+1)+1] += "x" + i + " ";
+	}
+
+model[numOfChairs*(numOfChairs+1)+1] += ">= " + numOfStudents;
+
+// Finally, we want integer solutions
+
+for (i = 0; i < numOfChairs; i++) {
+	model[numOfChairs*(numOfChairs+1)+2+i] = "int x" + i;
+	}
+
+
+for (i = 0; i < numOfChairs*(numOfChairs-1)/2; i++) {
+	model[numOfChairs*(numOfChairs+2)+2+i] = "int z" + i;
+	}
+
+
+// Solve the IP			
+
+
+model = solver.ReformatLP(model);
+ 
+results = solver.Solve(model);
+
+
+
+
+for(i=0; i<count; i++) {
+	if(eval("results.x"+i+"==1"))
+		{
+		theChairs[i].setAttribute("fill", "green");
+		}
+
+	}	
+	
+displayRisk(results.result);	
+}
+
+
+
+
+
+function calculateSeatsApproximate()  {
+
+if(count==0)
+	return;
+
+const numOfChairs = count;
+var selected = [];
+
+
+
+var edgeWeights = [];
+
+for (let i = 0; i < numOfChairs; i++) {
+	edgeWeights[i] = [];
+	for(let j = 0; j < numOfChairs; j++){
+		edgeWeights[i][j] = 0;	
+		}
+	}
+
+for (let i = 0; i < numOfChairs; i++) {
+	for(let j = 0; j < numOfChairs; j++){
+		if(i == j) {
+			edgeWeights[i][j] = 0;
+			}
+		else{
+			edgeWeights[i][j] = distanceToProbability(distanceBetweenCircles(i, j), time);
+			}
+		}
+	}
+
+
+// Selects the first set of chairs as selected as a guess to start things off.  We will improve from here.
+for(let i = 0; i < numOfChairs; i++) {
+	selected[i] = 0;
+	}
+for(let i = 0; i < numOfStudents; i++) {
+	selected[i] = 1;
+	}
+
+
+
+var stillOptimizing = true;
+
+while(stillOptimizing){
+	mainForLoop:
+	for(let i = 0; i < numOfChairs; i++)  {
+		if(selected[i]==1) {
+			selected[i] = 0;
+			var initialRisk = calcLocalRisk(i, edgeWeights, selected);
+			for(let j = 0; j < numOfChairs; j++) {
+				if(selected[j]==0)  {
+
+					var newRisk = calcLocalRisk(j, edgeWeights, selected);
+					if(newRisk < initialRisk) {
+						selected[j] = 1;
+						break mainForLoop;
+						}
+					}
+				}
+			selected[i] = 1;
+			}
+		
+		if(i == numOfChairs-1) {
+			stillOptimizing = false;
+			}
+		}
+
+
+
+
+	}
+
+
+for(let i = 0; i < numOfChairs; i++){
+	if(selected[i]==1)	{
+		theChairs[i].setAttribute("fill", "green");
+		}
+	}
+
+var totalRisk = 0;
+
+for(let i = 0; i < numOfChairs; i++) {
+	if(selected[i]==1) {
+		totalRisk += calcLocalRisk(i, edgeWeights, selected);
+		}
+	}
+
+displayRisk(totalRisk/2);
+
+}
+
+function calcLocalRisk(num, edgeWeights, selected){
+
+
+
+var total = 0;
+
+for(let i = 0; i < selected.length; i++) {
+	if(selected[i]==1){
+		total += edgeWeights[i][num];
+		}
+	}
+
+return total;
+}
+
+
+
+function resetColors() {
+for(let i = 0; i < count; i++) {
+	theChairs[i].setAttribute("fill", "blue")
+	}
+
+
+}
+
+function displayRisk(risk) {
+
+textElement = document.getElementById("risk_text");
+if(numOfStudents!=0)
+	textElement.textContent = "Risk of spread: " + (Math.round((risk/numOfStudents)*1000)/10) + "%";
+
+}
+
+changeNumOfStudents();
+changeTime();
+
+</script>
+
+
+
+
+
+
+
+</body>
+</html>
